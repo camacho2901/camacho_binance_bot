@@ -52,7 +52,7 @@ while True:
         for tipo, clave in [("BUY", "buy_max"), ("SELL", "sell_min")]:
             ofertas = buscar_ofertas(moneda, tipo, limites[clave])
             for oferta in ofertas:
-                msg = f"💱 *{tipo}* oferta de *{moneda}*
+   msg = f"💱 *{tipo}* oferta de *{moneda}*"
 💰 Precio: {oferta['precio']} Bs
 👤 Usuario: {oferta['comerciante']}
 🔗 [Ver oferta]({oferta['url']})"
