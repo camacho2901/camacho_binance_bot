@@ -1,60 +1,68 @@
-import json
 import requests
 import time
+import json
 
+# Cargar configuración
 with open("config.json") as f:
     config = json.load(f)
 
-def buscar_ofertas(moneda, tipo, max_precio):
+TELEGRAM_TOKEN = config["telegram_token"]
+CHAT_ID = config["telegram_user_id"]
+MONEDAS = config["monedas"]
+INTERVALO = config["intervalo_segundos"]
+LIMITES = config["limites"]
+
+def enviar_telegram(msg):
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    data = {
+        "chat_id": CHAT_ID,
+        "text": msg,
+        "parse_mode": "Markdown"
+    }
+    requests.post(url, data=data)
+
+def obtener_ofertas(moneda, tipo):
     url = "https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search"
+    headers = {
+        "Content-Type": "application/json"
+    }
     data = {
         "asset": moneda,
         "fiat": "BOB",
         "merchantCheck": False,
         "page": 1,
+        "rows": 5,
         "payTypes": [],
         "publisherType": None,
-        "rows": 10,
         "tradeType": tipo
     }
 
-    headers = {
-        "Content-Type": "application/json"
-    }
-
     response = requests.post(url, headers=headers, json=data)
-    ofertas = response.json().get("data", [])
-    resultados = []
+    if response.status_code == 200:
+        return response.json()["data"]
+    else:
+        return []
 
-    for oferta in ofertas:
-        adv = oferta["adv"]
-        precio = float(adv["price"])
-        if (tipo == "BUY" and precio <= max_precio) or (tipo == "SELL" and precio >= max_precio):
-            resultados.append({
-                "precio": precio,
-                "comerciante": oferta["advertiser"]["nickName"],
-                "url": f"https://p2p.binance.com/en/advertiserDetail?advertiserNo={oferta['advertiser']['userNo']}"
-            })
-    return resultados
+def verificar_ofertas():
+    for moneda in MONEDAS:
+        for tipo in ["BUY", "SELL"]:
+            ofertas = obtener_ofertas(moneda, tipo)
+            for oferta in ofertas:
+                precio = float(oferta["adv"]["price"])
+                nombre = oferta["advertiser"]["nickName"]
+                link = f"https://p2p.binance.com/es/advertiserDetail?advertiserNo={oferta['advertiser']['userNo']}"
 
-def enviar_telegram(mensaje):
-    url = f"https://api.telegram.org/bot{config['telegram_token']}/sendMessage"
-    data = {
-        "chat_id": config["telegram_user_id"],
-        "text": mensaje,
-        "parse_mode": "Markdown"
-    }
-    requests.post(url, data=data)
+                if tipo == "BUY" and precio <= LIMITES[moneda]["buy_max"]:
+                    msg = f"💱 *{tipo}* oferta de *{moneda}*\n👤 Vendedor: `{nombre}`\n💵 Precio: *{precio}*\n🔗 [Ver oferta]({link})"
+                    enviar_telegram(msg)
+
+                if tipo == "SELL" and precio >= LIMITES[moneda]["sell_min"]:
+                    msg = f"💱 *{tipo}* oferta de *{moneda}*\n👤 Comprador: `{nombre}`\n💵 Precio: *{precio}*\n🔗 [Ver oferta]({link})"
+                    enviar_telegram(msg)
 
 while True:
-    for moneda in config["monedas"]:
-        limites = config["limites"][moneda]
-        for tipo, clave in [("BUY", "buy_max"), ("SELL", "sell_min")]:
-            ofertas = buscar_ofertas(moneda, tipo, limites[clave])
-            for oferta in ofertas:
-   msg = f"💱 *{tipo}* oferta de *{moneda}*"
-💰 Precio: {oferta['precio']} Bs
-👤 Usuario: {oferta['comerciante']}
-🔗 [Ver oferta]({oferta['url']})"
-                enviar_telegram(msg)
-    time.sleep(config["intervalo_segundos"])
+    try:
+        verificar_ofertas()
+    except Exception as e:
+        enviar_telegram(f"❌ Error en bot: {e}")
+    time.sleep(INTERVALO)
